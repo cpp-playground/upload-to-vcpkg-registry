@@ -1,0 +1,134 @@
+name: "Upload to vcpkg registry"
+author: "Leo Ghafari"
+description: "Add or update a C++ port to a given  Git vcpkg registry."
+
+branding:
+  icon: 'upload'  
+  color: 'yellow'
+
+inputs:
+  # Package infos
+  package_name:
+    description: "Name of the package to upload to the vcpkg registry."
+    required: true
+  package_version:
+    description: "Version of the package. Must match an already released tag."
+    required: true
+  package_dep_file:
+    description: "Path to the vcpkg.json file for the package relative to the source repository root."
+    required: false
+    default: "./vcpkg.json"
+  package_port_file:
+    description: "Path to portfile.cmake file for the package relative to the source repository root."
+    required: false
+    default: "./portfile.cmake"
+
+  # Registry
+  registry:
+    description: "vcpkg target registry (owner/repository)"
+    required: true
+  registry_access_token:
+    description: Token used to access the target registry
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Clone registry
+      uses: actions/checkout@v3
+      with:
+        token: ${{ inputs.registry_access_token }}
+        repository: ${{ inputs.registry }}
+        path: "vcpkg-registry"
+
+    # Initial setup
+    - name: Copy files to registry
+      run: |
+        sudo apt-get install -y moreutils
+        git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
+        git config --local user.name "github-actions[bot]"
+      shell: bash
+
+    # Setup port folder
+    - name: Copy files to registry
+      run: |
+        PACKAGE_PORT_PATH="vcpkg-registry/ports/${{ inputs.package_name }}"
+
+        mkdir -p $PACKAGE_PORT_PATH
+        cp ${{ inputs.package_dep_file }} $PACKAGE_PORT_PATH/vcpkg.json
+        cp ${{ inputs.package_port_file }} $PACKAGE_PORT_PATH/portfile.cmake
+      shell: bash
+
+    - name: Update portfile
+      run: |
+        PACKAGE_PORTFILE="ports/${{ inputs.package_name }}/portfile.cmake"
+        wget https://github.com/${{github.repository}}/archive/${{inputs.package_version}}.tar.gz -O /tmp/archive.tar.gz
+
+        sed -i 's/COMMIT_REF/${{inputs.package_version}}/' $PACKAGE_PORTFILE
+        sed -i "s/ARCHIVE_SHA/`sha512sum /tmp/archive.tar.gz  | grep -Eo '^\w+'`/"$PACKAGE_PORTFILE
+      working-directory: "vcpkg-registry"
+      shell: bash
+
+    - name: Commit port folder
+      run: |
+        git add ports/${{ inputs.package_name }}
+        git commit -m "Updated port for ${{ inputs.package_name }}"
+      working-directory: "vcpkg-registry"
+      shell: bash
+
+    # Get tree identifier for port
+    - name: Get git-tree
+      id: get-git-tree
+      run: echo "::set-output name=rev::`git rev-parse HEAD:ports/${{ inputs.package_name }}`"
+      working-directory: "vcpkg-registry"
+      shell: bash
+
+
+    #Setup versions folder
+    - name: Update baseline
+      run: |
+        echo '{
+          "default": {
+            "${{ inputs.package_name }}": { 
+              "baseline": "${{inputs.package_version}}", 
+              "port-version": 0 
+            }
+          }
+        }' > /tmp/baseline.json
+        jq -rs '.[0] * .[1]' versions/baseline.json /tmp/baseline.json | sponge versions/baseline.json
+      working-directory: "vcpkg-registry"
+      shell: bash
+
+    - name: Create versions file for the port
+      run: |
+        FIRST=`echo ${{ inputs.package_name }} | cut -c 1-1`
+        mkdir -p versions/$FIRST-
+        echo '{
+          "versions": [
+            {
+              "version": "${{inputs.package_version}}",
+              "git-tree": "${{ steps.get-git-tree.outputs.rev }}"
+            }
+          ]
+        }' > versions/$FIRST-/${{ inputs.package_name }}.json
+      working-directory: "vcpkg-registry"
+      shell: bash
+
+    - name: Commit versions folder
+      run: |
+        git add versions
+        git commit --amend --no-edit
+      working-directory: "vcpkg-registry"
+      shell: bash
+
+    # Push and PR
+    - name: Create Pull Request
+      uses: peter-evans/create-pull-request@v4
+      with:
+        path: "vcpkg-registry"
+        token: ${{ inputs.registry_access_token }}
+        base: main
+        commit-message: "[Automated] Update port for ${{ inputs.package_name }} ${{inputs.package_version}}"
+        branch: "port-update/${{ inputs.package_name }}-${{inputs.package_version}}"
+        title: "[Automated] Update port for ${{ inputs.package_name }} ${{inputs.package_version}}"
+        delete-branch: true
