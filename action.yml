@@ -65,7 +65,7 @@ runs:
         wget https://github.com/${{github.repository}}/archive/${{inputs.package_version}}.tar.gz -O /tmp/archive.tar.gz
 
         sed -i 's/COMMIT_REF/${{inputs.package_version}}/' $PACKAGE_PORTFILE
-        sed -i "s/ARCHIVE_SHA/`sha512sum /tmp/archive.tar.gz  | grep -Eo '^\w+'`/"$PACKAGE_PORTFILE
+        sed -i "s/ARCHIVE_SHA/`sha512sum /tmp/archive.tar.gz  | grep -Eo '^\w+'`/" $PACKAGE_PORTFILE
       working-directory: "vcpkg-registry"
       shell: bash
 
