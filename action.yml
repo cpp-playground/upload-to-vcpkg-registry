@@ -42,11 +42,12 @@ runs:
         path: "vcpkg-registry"
 
     # Initial setup
-    - name: Copy files to registry
+    - name: Setup context
       run: |
         sudo apt-get install -y moreutils
         git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
+      working-directory: "vcpkg-registry"
       shell: bash
 
     # Setup port folder
